@@ -1,395 +1,196 @@
 'use server';
 
 import { createClient } from '@/lib/supabase/server';
-import {
-  signUpSchema,
-  signInSchema,
-  resetPasswordRequestSchema,
-  resetPasswordConfirmSchema,
-  updatePasswordSchema,
-} from '@/lib/schemas/auth';
+import type { SignUpInput, SignInInput, ResetPasswordConfirmInput } from '@/lib/schemas/auth';
+import type { User } from '@/lib/types';
 import { createUser, getUserByEmail, isUsernameAvailable } from '@/lib/db/queries/users';
-import type { AuthResult } from '@/lib/types';
-import { revalidatePath } from 'next/cache';
-import { redirect } from 'next/navigation';
 
 /**
- * Authentication service (Server Actions)
+ * Authentication service functions
  *
- * All auth operations are server-side only for security:
- * - Input validation with Zod
- * - Database operations with Drizzle
- * - Supabase Auth integration
- * - Automatic cache revalidation
+ * Pure business logic - no validation, no error formatting.
+ * Throws errors on failure - actions handle error formatting.
+ * Reusable across actions, cron jobs, webhooks, etc.
  */
 
 /**
  * Sign up a new user
  *
- * Process:
- * 1. Validate input (email, password, username)
- * 2. Check username availability
- * 3. Create Supabase Auth user
- * 4. Create database user profile
- * 5. Return success or error
- *
- * @param formData - Raw form data from client
- * @returns AuthResult with success/error
+ * @param input - Validated signup data
+ * @returns Created user
+ * @throws Error if username taken or auth fails
  */
-export const signUp = async (formData: FormData): Promise<AuthResult> => {
-  try {
-    // Parse and validate form data
-    const rawData = {
-      email: formData.get('email'),
-      password: formData.get('password'),
-      username: formData.get('username'),
-    };
-
-    const validatedData = signUpSchema.parse(rawData);
-
-    // Check username availability
-    const usernameAvailable = await isUsernameAvailable(validatedData.username);
-    if (!usernameAvailable) {
-      return {
-        success: false,
-        data: null,
-        error: 'Username is already taken',
-      };
-    }
-
-    // Create Supabase Auth user
-    const supabase = await createClient();
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: validatedData.email,
-      password: validatedData.password,
-    });
-
-    if (authError) {
-      return {
-        success: false,
-        data: null,
-        error: authError.message,
-      };
-    }
-
-    if (!authData.user) {
-      return {
-        success: false,
-        data: null,
-        error: 'Failed to create user account',
-      };
-    }
-
-    // Create user profile in database
-    await createUser({
-      id: authData.user.id,
-      email: validatedData.email,
-      username: validatedData.username,
-    });
-
-    revalidatePath('/', 'layout');
-    return {
-      success: true,
-      data: null,
-      error: null,
-    };
-  } catch (error) {
-    if (error instanceof Error) {
-      return {
-        success: false,
-        data: null,
-        error: error.message,
-      };
-    }
-
-    return {
-      success: false,
-      data: null,
-      error: 'An unexpected error occurred',
-    };
+export const signUpUser = async (input: SignUpInput): Promise<User> => {
+  // Check username availability
+  const usernameAvailable = await isUsernameAvailable(input.username);
+  if (!usernameAvailable) {
+    throw new Error('Username is already taken');
   }
-};
 
-/**
- * Sign in an existing user
- *
- * Process:
- * 1. Validate input (email, password)
- * 2. Authenticate with Supabase
- * 3. Redirect to dashboard on success
- *
- * @param formData - Raw form data from client
- * @returns AuthResult with success/error
- */
-export const signIn = async (formData: FormData): Promise<AuthResult> => {
-  try {
-    // Parse and validate form data
-    const rawData = {
-      email: formData.get('email'),
-      password: formData.get('password'),
-    };
-
-    const validatedData = signInSchema.parse(rawData);
-
-    // Authenticate with Supabase
-    const supabase = await createClient();
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email: validatedData.email,
-      password: validatedData.password,
-    });
-
-    if (authError) {
-      return {
-        success: false,
-        data: null,
-        error: 'Invalid email or password',
-      };
-    }
-
-    revalidatePath('/', 'layout');
-    return {
-      success: true,
-      data: null,
-      error: null,
-    };
-  } catch (error) {
-    if (error instanceof Error) {
-      return {
-        success: false,
-        data: null,
-        error: error.message,
-      };
-    }
-
-    return {
-      success: false,
-      data: null,
-      error: 'An unexpected error occurred',
-    };
-  }
-};
-
-/**
- * Sign out the current user
- *
- * Process:
- * 1. Call Supabase sign out
- * 2. Clear session cookies
- * 3. Redirect to home page
- */
-export const signOut = async (): Promise<void> => {
+  // Create Supabase Auth user
   const supabase = await createClient();
-  await supabase.auth.signOut();
-  revalidatePath('/', 'layout');
-  redirect('/');
+  const { data: authData, error: authError } = await supabase.auth.signUp({
+    email: input.email,
+    password: input.password,
+  });
+
+  if (authError) {
+    throw new Error(authError.message);
+  }
+
+  if (!authData.user) {
+    throw new Error('Failed to create user account');
+  }
+
+  // Create user profile in database
+  const user = await createUser({
+    id: authData.user.id,
+    email: input.email,
+    username: input.username,
+  });
+
+  return user;
 };
 
 /**
- * Request password reset email
+ * Sign in user
  *
- * Process:
- * 1. Validate email
- * 2. Send reset email via Supabase
- * 3. Return success (always, for security)
- *
- * Note: Always returns success to prevent email enumeration attacks
- *
- * @param formData - Raw form data from client
- * @returns AuthResult with success message
+ * @param input - Validated signin data
+ * @throws Error if credentials invalid
  */
-export const requestPasswordReset = async (formData: FormData): Promise<AuthResult> => {
-  try {
-    // Parse and validate form data
-    const rawData = {
-      email: formData.get('email'),
-    };
+export const signInUser = async (input: SignInInput): Promise<void> => {
+  const supabase = await createClient();
+  const { error: authError } = await supabase.auth.signInWithPassword({
+    email: input.email,
+    password: input.password,
+  });
 
-    const validatedData = resetPasswordRequestSchema.parse(rawData);
-
-    // Send reset email
-    const supabase = await createClient();
-    await supabase.auth.resetPasswordForEmail(validatedData.email, {
-      redirectTo: `${process.env['NEXT_PUBLIC_APP_URL']}/auth/reset-password`,
-    });
-
-    // Always return success to prevent email enumeration
-    return {
-      success: true,
-      data: null,
-      error: null,
-    };
-  } catch (error) {
-    // Still return success for security
-    return {
-      success: true,
-      data: null,
-      error: null,
-    };
+  if (authError) {
+    throw new Error('Invalid email or password');
   }
+};
+
+/**
+ * Sign out current user
+ *
+ * @throws Error if signout fails
+ */
+export const signOutUser = async (): Promise<void> => {
+  const supabase = await createClient();
+  const { error } = await supabase.auth.signOut();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+};
+
+/**
+ * Request password reset
+ *
+ * @param email - User email
+ * @throws Error if email send fails (error is intentionally ignored for security)
+ */
+export const requestPasswordReset = async (email: string): Promise<void> => {
+  const supabase = await createClient();
+
+  // Intentionally ignore errors to prevent email enumeration
+  await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${process.env['NEXT_PUBLIC_APP_URL']}/auth/reset-password`,
+  });
 };
 
 /**
  * Reset password with token
  *
- * Process:
- * 1. Validate new password
- * 2. Update password in Supabase
- * 3. Redirect to login
- *
- * Note: Token validation is handled by Supabase automatically
- *
- * @param formData - Raw form data from client
- * @returns AuthResult with success/error
+ * @param input - New password data
+ * @throws Error if password update fails
  */
-export const resetPassword = async (formData: FormData): Promise<AuthResult> => {
-  try {
-    // Parse and validate form data
-    const rawData = {
-      password: formData.get('password'),
-      confirmPassword: formData.get('confirmPassword'),
-    };
+export const resetPassword = async (input: ResetPasswordConfirmInput): Promise<void> => {
+  const supabase = await createClient();
+  const { error: authError } = await supabase.auth.updateUser({
+    password: input.password,
+  });
 
-    const validatedData = resetPasswordConfirmSchema.parse(rawData);
-
-    // Update password
-    const supabase = await createClient();
-    const { error: authError } = await supabase.auth.updateUser({
-      password: validatedData.password,
-    });
-
-    if (authError) {
-      return {
-        success: false,
-        data: null,
-        error: authError.message,
-      };
-    }
-
-    revalidatePath('/', 'layout');
-    return {
-      success: true,
-      data: null,
-      error: null,
-    };
-  } catch (error) {
-    if (error instanceof Error) {
-      return {
-        success: false,
-        data: null,
-        error: error.message,
-      };
-    }
-
-    return {
-      success: false,
-      data: null,
-      error: 'An unexpected error occurred',
-    };
+  if (authError) {
+    throw new Error(authError.message);
   }
 };
 
 /**
- * Update user password (authenticated users)
+ * Update password for authenticated user
  *
- * Process:
- * 1. Validate current and new passwords
- * 2. Re-authenticate with current password
- * 3. Update to new password
- *
- * @param formData - Raw form data from client
- * @returns AuthResult with success/error
+ * @param userId - User ID
+ * @param email - User email
+ * @param currentPassword - Current password (for verification)
+ * @param newPassword - New password
+ * @throws Error if current password wrong or update fails
  */
-export const updatePassword = async (formData: FormData): Promise<AuthResult> => {
-  try {
-    // Parse and validate form data
-    const rawData = {
-      currentPassword: formData.get('currentPassword'),
-      newPassword: formData.get('newPassword'),
-      confirmNewPassword: formData.get('confirmNewPassword'),
-    };
+export const updateUserPassword = async (
+  email: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<void> => {
+  const supabase = await createClient();
 
-    const validatedData = updatePasswordSchema.parse(rawData);
+  // Verify current password by re-authenticating
+  const { error: signInError } = await supabase.auth.signInWithPassword({
+    email,
+    password: currentPassword,
+  });
 
-    // Get current user
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+  if (signInError) {
+    throw new Error('Current password is incorrect');
+  }
 
-    if (!user?.email) {
-      return {
-        success: false,
-        data: null,
-        error: 'User not authenticated',
-      };
-    }
+  // Update to new password
+  const { error: updateError } = await supabase.auth.updateUser({
+    password: newPassword,
+  });
 
-    // Verify current password by re-authenticating
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: user.email,
-      password: validatedData.currentPassword,
-    });
-
-    if (signInError) {
-      return {
-        success: false,
-        data: null,
-        error: 'Current password is incorrect',
-      };
-    }
-
-    // Update to new password
-    const { error: updateError } = await supabase.auth.updateUser({
-      password: validatedData.newPassword,
-    });
-
-    if (updateError) {
-      return {
-        success: false,
-        data: null,
-        error: updateError.message,
-      };
-    }
-
-    return {
-      success: true,
-      data: null,
-      error: null,
-    };
-  } catch (error) {
-    if (error instanceof Error) {
-      return {
-        success: false,
-        data: null,
-        error: error.message,
-      };
-    }
-
-    return {
-      success: false,
-      data: null,
-      error: 'An unexpected error occurred',
-    };
+  if (updateError) {
+    throw new Error(updateError.message);
   }
 };
 
 /**
  * Get current authenticated user
  *
- * @returns User object or null
+ * @returns User profile from database or null if not authenticated
  */
-export const getCurrentUser = async () => {
+export const getCurrentUser = async (): Promise<User | null> => {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
+  if (!user?.email) {
     return null;
   }
 
   // Get user profile from database
-  const userProfile = await getUserByEmail(user.email!);
-
+  const userProfile = await getUserByEmail(user.email);
   return userProfile;
+};
+
+/**
+ * Check if user is authenticated
+ *
+ * @returns true if user is logged in, false otherwise
+ */
+export const isAuthenticated = async (): Promise<boolean> => {
+  const user = await getCurrentUser();
+  return user !== null;
+};
+
+/**
+ * Get user session
+ *
+ * @returns Supabase session or null
+ */
+export const getSession = async () => {
+  const supabase = await createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  return session;
 };
