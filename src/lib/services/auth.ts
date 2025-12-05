@@ -41,6 +41,9 @@ export const signUpUser = async (input: SignUpInput): Promise<User> => {
   const { data: authData, error: authError } = await supabase.auth.signUp({
     email: input.email,
     password: input.password,
+    options: {
+      emailRedirectTo: `${process.env['NEXT_PUBLIC_APP_URL']}/api/auth/confirm`,
+    },
   });
 
   if (authError) {
@@ -125,7 +128,7 @@ export const requestPasswordReset = async (email: string): Promise<void> => {
 
   // Intentionally ignore errors to prevent email enumeration
   await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${process.env['NEXT_PUBLIC_APP_URL']}/auth/reset-password`,
+    redirectTo: `${process.env['NEXT_PUBLIC_APP_URL']}/api/auth/reset-password`,
   });
 };
 

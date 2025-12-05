@@ -119,6 +119,7 @@ export const requestPasswordResetAction = actionClient
  * Reset password action
  *
  * Updates password using reset token.
+ * Redirects to dashboard after successful reset.
  */
 export const resetPasswordAction = actionClient
   .inputSchema(resetPasswordConfirmSchema)
@@ -127,11 +128,7 @@ export const resetPasswordAction = actionClient
     await resetPasswordService(parsedInput);
 
     revalidatePath('/', 'layout');
-
-    return {
-      success: true,
-      message: 'Password reset successfully! You can now log in with your new password.',
-    };
+    redirect('/dashboard');
   });
 
 /**
