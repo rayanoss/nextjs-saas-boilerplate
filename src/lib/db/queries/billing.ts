@@ -1,4 +1,4 @@
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, like } from 'drizzle-orm';
 import { db } from '../connection';
 import { plans, subscriptions, webhookEvents } from '../schema';
 import type {
@@ -343,4 +343,27 @@ export const getUnprocessedWebhookEvents = async (limit: number = 50): Promise<W
     .where(eq(webhookEvents.processed, false))
     .orderBy(webhookEvents.createdAt)
     .limit(limit);
+};
+
+/**
+ * Get user's unprocessed subscription webhooks
+ *
+ * Returns pending webhooks for a specific user.
+ * Used when user has paid but subscription not yet synced.
+ *
+ * @param userId - User UUID
+ * @returns Array of unprocessed subscription webhooks
+ */
+export const getUserUnprocessedSubscriptionWebhooks = async (userId: string): Promise<WebhookEvent[]> => {
+  return await db
+    .select()
+    .from(webhookEvents)
+    .where(
+      and(
+        eq(webhookEvents.userId, userId),
+        eq(webhookEvents.processed, false),
+        like(webhookEvents.eventName, 'subscription_%')
+      )
+    )
+    .orderBy(webhookEvents.createdAt);
 };

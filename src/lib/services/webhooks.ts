@@ -1,17 +1,15 @@
 'use server';
-
-import { getPrice } from '@lemonsqueezy/lemonsqueezy.js';
-import { configureLemonSqueezy } from '@/lib/config/lemonsqueezy';
 import {
   createWebhookEvent,
+  getUnprocessedWebhookEvents,
   getWebhookEventById,
   markWebhookEventAsProcessed,
   markWebhookEventAsFailed,
   getPlanByVariantId,
   upsertSubscription,
+  getUserUnprocessedSubscriptionWebhooks,
 } from '@/lib/db/queries/billing';
 import type { LemonSqueezyWebhookPayload, WebhookEvent } from '@/lib/types';
-import { ExternalAPIError } from '@/lib/errors';
 
 /**
  * Webhook service functions
@@ -41,8 +39,12 @@ export const storeWebhookEvent = async (
   eventName: string,
   payload: unknown
 ): Promise<WebhookEvent> => {
+  const webhookPayload = payload as LemonSqueezyWebhookPayload;
+  const userId = webhookPayload.meta.custom_data?.user_id || null;
+
   return await createWebhookEvent({
     eventName,
+    userId,
     body: payload as Record<string, unknown>,
     processed: false,
   });
@@ -127,20 +129,6 @@ async function handleSubscriptionEvent(payload: LemonSqueezyWebhookPayload): Pro
     throw new Error(`Plan with variantId ${attributes.variant_id} not found`);
   }
 
-  // Configure LemonSqueezy SDK
-  configureLemonSqueezy();
-
-  // Fetch price data from LemonSqueezy
-  const priceId = attributes.first_subscription_item.price_id;
-  const priceData = await getPrice(priceId.toString());
-
-  if (priceData.error) {
-    throw new ExternalAPIError(
-      `Failed to get price data for subscription ${data.id}`,
-      priceData.error
-    );
-  }
-
   // Prepare subscription data
   const subscriptionData = {
     userId,
@@ -180,6 +168,49 @@ async function handleSubscriptionEvent(payload: LemonSqueezyWebhookPayload): Pro
  * ```
  */
 export const getUnprocessedEvents = async (limit: number = 50): Promise<WebhookEvent[]> => {
-  const { getUnprocessedWebhookEvents } = await import('@/lib/db/queries/billing');
   return await getUnprocessedWebhookEvents(limit);
+};
+
+/**
+ * Process user's pending subscription webhooks
+ *
+ * Called when user has paid but subscription not yet synced.
+ * Checks for unprocessed subscription webhooks and processes them immediately.
+ *
+ * @param userId - User UUID
+ * @returns True if any webhooks were found and processed
+ *
+ * @example
+ * ```typescript
+ * // In dashboard when subscription not found
+ * const subscription = await getUserSubscription(userId);
+ * if (!subscription) {
+ *   const processed = await processUserPendingWebhooks(userId);
+ *   if (processed) {
+ *     // Refetch subscription
+ *     subscription = await getUserSubscription(userId);
+ *   }
+ * }
+ * ```
+ */
+export const processUserPendingWebhooks = async (userId: string): Promise<boolean> => {
+  const pendingWebhooks = await getUserUnprocessedSubscriptionWebhooks(userId);
+
+  if (pendingWebhooks.length === 0) {
+    return false;
+  }
+
+  console.log(`[WEBHOOK_RECOVERY] Processing ${pendingWebhooks.length} pending webhooks for user ${userId}`);
+
+  for (const webhook of pendingWebhooks) {
+    try {
+      await processWebhookEvent(webhook.id);
+      console.log(`[WEBHOOK_RECOVERY] Processed webhook ${webhook.id} (${webhook.eventName})`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[WEBHOOK_RECOVERY] Failed to process webhook ${webhook.id}: ${errorMessage}`);
+    }
+  }
+
+  return true;
 };

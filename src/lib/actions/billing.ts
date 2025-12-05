@@ -96,7 +96,7 @@ export const createCheckoutAction = authActionClient
       const checkoutUrl = await createCheckoutUrl({
         planId: parsedInput.planId,
         userId: ctx.userId,
-        userEmail: ctx.user.email!,
+        userEmail: ctx.user.email,
         ...(parsedInput.redirectUrl && { redirectUrl: parsedInput.redirectUrl }),
       });
 

@@ -8,6 +8,7 @@ import {
   getUserSubscriptionWithPlan,
   upsertPlan,
 } from '@/lib/db/queries/billing';
+import { processUserPendingWebhooks } from '@/lib/services/webhooks';
 import type { Plan, CheckoutOptions, SubscriptionWithPlan } from '@/lib/types';
 import { ValidationError, ExternalAPIError } from '@/lib/errors';
 
@@ -35,12 +36,23 @@ export const getAvailablePlans = async (): Promise<Plan[]> => {
  * Get user's current subscription with plan details
  *
  * Returns subscription and plan information if user has an active subscription.
+ * If no subscription found, checks for pending webhooks and processes them.
  *
  * @param userId - User UUID
  * @returns Subscription with plan or null if no active subscription
  */
 export const getUserSubscription = async (userId: string): Promise<SubscriptionWithPlan | null> => {
-  return await getUserSubscriptionWithPlan(userId);
+  let subscription = await getUserSubscriptionWithPlan(userId);
+
+  if (!subscription) {
+    const processed = await processUserPendingWebhooks(userId);
+
+    if (processed) {
+      subscription = await getUserSubscriptionWithPlan(userId);
+    }
+  }
+
+  return subscription;
 };
 
 /**
@@ -71,6 +83,10 @@ export const createCheckoutUrl = async (options: CheckoutOptions): Promise<strin
   const existingSubscription = await getUserSubscriptionWithPlan(userId);
 
   if (existingSubscription) {
+    // User already has subscription, redirect to Customer Portal to manage it
+    if (existingSubscription.subscription.customerPortalUrl) {
+      return existingSubscription.subscription.customerPortalUrl;
+    }
     throw new ValidationError('You already have an active subscription');
   }
 

@@ -79,6 +79,7 @@ export const subscriptions = pgTable('subscriptions', {
 export const webhookEvents = pgTable('webhook_events', {
   id: uuid('id').primaryKey().defaultRandom(),
   eventName: text('event_name').notNull(),           // "subscription_created", etc.
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }), // User from webhook custom_data
   processed: boolean('processed').default(false).notNull(),
   body: jsonb('body').notNull(),                     // Full webhook payload
   processingError: text('processing_error'),
@@ -87,4 +88,6 @@ export const webhookEvents = pgTable('webhook_events', {
 }, (table) => ({
   eventNameIdx: index('webhook_events_event_name_idx').on(table.eventName),
   processedIdx: index('webhook_events_processed_idx').on(table.processed),
+  userIdIdx: index('webhook_events_user_id_idx').on(table.userId),
+  userIdProcessedIdx: index('webhook_events_user_id_processed_idx').on(table.userId, table.processed),
 }));
