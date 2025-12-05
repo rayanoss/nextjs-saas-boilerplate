@@ -1,6 +1,6 @@
 'use server';
 
-import { createClient } from '@/lib/supabase/server';
+import { createServerClient, createAdminClient } from '@/lib/supabase/clients';
 import type { SignUpInput, SignInInput, ResetPasswordConfirmInput } from '@/lib/schemas/auth';
 import type { User } from '@/lib/types';
 import { createUser, getUserByEmail, isUsernameAvailable, isEmailAvailable } from '@/lib/db/queries/users';
@@ -37,7 +37,7 @@ export const signUpUser = async (input: SignUpInput): Promise<User> => {
   }
 
   // Create Supabase Auth user
-  const supabase = await createClient();
+  const supabase = await createServerClient();
   const { data: authData, error: authError } = await supabase.auth.signUp({
     email: input.email,
     password: input.password,
@@ -62,6 +62,21 @@ export const signUpUser = async (input: SignUpInput): Promise<User> => {
 
     return user;
   } catch (error) {
+    // ROLLBACK: Delete auth user if database creation fails
+    // This prevents orphaned auth users without database records
+    try {
+      const adminClient = createAdminClient();
+      const { error: deleteError } = await adminClient.auth.admin.deleteUser(authData.user.id);
+
+      if (deleteError) {
+        // Log cleanup failure but don't throw - original error is more important
+        console.error('[CLEANUP_ERROR] Failed to delete auth user after DB error:', deleteError);
+      }
+    } catch (cleanupError) {
+      // Catch any unexpected errors during cleanup
+      console.error('[CLEANUP_ERROR] Unexpected error during auth user cleanup:', cleanupError);
+    }
+
     // Database error during user creation
     throw new DatabaseError('Failed to create user profile', error);
   }
@@ -74,7 +89,7 @@ export const signUpUser = async (input: SignUpInput): Promise<User> => {
  * @throws AuthenticationError if credentials invalid
  */
 export const signInUser = async (input: SignInInput): Promise<void> => {
-  const supabase = await createClient();
+  const supabase = await createServerClient();
   const { error: authError } = await supabase.auth.signInWithPassword({
     email: input.email,
     password: input.password,
@@ -91,7 +106,7 @@ export const signInUser = async (input: SignInInput): Promise<void> => {
  * @throws AuthenticationError if signout fails
  */
 export const signOutUser = async (): Promise<void> => {
-  const supabase = await createClient();
+  const supabase = await createServerClient();
   const { error } = await supabase.auth.signOut();
 
   if (error) {
@@ -106,7 +121,7 @@ export const signOutUser = async (): Promise<void> => {
  * @throws Error if email send fails (error is intentionally ignored for security)
  */
 export const requestPasswordReset = async (email: string): Promise<void> => {
-  const supabase = await createClient();
+  const supabase = await createServerClient();
 
   // Intentionally ignore errors to prevent email enumeration
   await supabase.auth.resetPasswordForEmail(email, {
@@ -121,7 +136,7 @@ export const requestPasswordReset = async (email: string): Promise<void> => {
  * @throws AuthenticationError if password update fails
  */
 export const resetPassword = async (input: ResetPasswordConfirmInput): Promise<void> => {
-  const supabase = await createClient();
+  const supabase = await createServerClient();
   const { error: authError } = await supabase.auth.updateUser({
     password: input.password,
   });
@@ -145,7 +160,7 @@ export const updateUserPassword = async (
   currentPassword: string,
   newPassword: string
 ): Promise<void> => {
-  const supabase = await createClient();
+  const supabase = await createServerClient();
 
   // Verify current password by re-authenticating
   const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -173,7 +188,7 @@ export const updateUserPassword = async (
  * @returns User profile from database or null if not authenticated
  */
 export const getCurrentUser = async (): Promise<User | null> => {
-  const supabase = await createClient();
+  const supabase = await createServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -203,7 +218,7 @@ export const isAuthenticated = async (): Promise<boolean> => {
  * @returns Supabase session or null
  */
 export const getSession = async () => {
-  const supabase = await createClient();
+  const supabase = await createServerClient();
   const {
     data: { session },
   } = await supabase.auth.getSession();

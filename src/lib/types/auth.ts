@@ -1,21 +1,10 @@
 /**
- * Centralized type definitions
+ * Authentication Types
  *
- * This file re-exports and extends types from:
- * - Database schema (Drizzle)
- * - Validation schemas (Zod)
- * - Supabase clients
- *
- * Benefits:
- * - Single source of truth for types
- * - Easier refactoring
- * - Consistent type usage across the app
+ * Types for authentication flows, inputs, and responses.
  */
 
-// Database types
-export type { User, NewUser } from './db/schema';
-
-// Auth schema types
+// Zod-validated input types
 export type {
   SignUpInput,
   SignInInput,
@@ -24,17 +13,29 @@ export type {
   UpdatePasswordInput,
   UpdateEmailInput,
   UpdateUsernameInput,
-} from './schemas/auth';
-
-// Supabase client types
-export type { ServerClient } from './supabase/server';
-export type { BrowserClient } from './supabase/client';
-export type { MiddlewareSession } from './supabase/middleware';
+} from '../schemas/auth';
 
 /**
  * Auth result type for server actions
  *
  * Standardized response format for all auth operations.
+ *
+ * @example
+ * ```typescript
+ * // Success
+ * const result: AuthResult<User> = {
+ *   success: true,
+ *   data: user,
+ *   error: null,
+ * };
+ *
+ * // Error
+ * const result: AuthResult = {
+ *   success: false,
+ *   data: null,
+ *   error: 'Invalid credentials',
+ * };
+ * ```
  */
 export type AuthResult<T = null> =
   | {

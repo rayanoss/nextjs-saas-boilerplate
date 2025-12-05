@@ -13,9 +13,3 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
-
-// Type inference for SELECT queries
-export type User = typeof users.$inferSelect;
-
-// Type inference for INSERT queries
-export type NewUser = typeof users.$inferInsert;

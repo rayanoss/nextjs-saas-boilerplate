@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../connection';
-import { users, type NewUser, type User } from '../schema';
+import { users } from '../schema';
+import type { User, NewUser } from '@/lib/types/database';
 
 /**
  * User database queries
