@@ -45,6 +45,7 @@ src/
 │   ├── schemas/           # Zod validation schemas
 │   │   └── auth.ts        # Auth input validation
 │   │
+│   ├── errors.ts          # Custom error classes
 │   └── types.ts           # Centralized type definitions
 │
 ├── middleware.ts          # Route protection & session refresh
@@ -155,6 +156,65 @@ npm run db:studio
 - `/login`
 - `/signup`
 - `/forgot-password`
+
+## Error Handling Architecture
+
+### Custom Error Classes (`lib/errors.ts`)
+
+Following next-safe-action best practices, we use custom error classes for different error types:
+
+**ValidationError** - Business logic validation failures
+```typescript
+throw new ValidationError('Username is already taken', 'username');
+// Displays error under the 'username' field in the form
+```
+
+**AuthenticationError** - Authentication/authorization failures
+```typescript
+throw new AuthenticationError('Invalid email or password');
+// Displayed as a general error to the user
+```
+
+**DatabaseError** - Database/infrastructure failures
+```typescript
+throw new DatabaseError('Connection timeout');
+// Masked in production: "A database error occurred"
+```
+
+**ExternalAPIError** - Third-party service failures
+```typescript
+throw new ExternalAPIError('Failed to send email');
+// Masked in production: "An external service error occurred"
+```
+
+### Error Flow
+
+```
+Service → Throw Custom Error
+    ↓
+Action → Catch ValidationError → returnValidationErrors (field-specific)
+    ↓
+Action → Re-throw Other Errors
+    ↓
+handleServerError → Pattern match error type → Return appropriate message
+    ↓
+Client → Display error (result.validationErrors or result.serverError)
+```
+
+**Example:**
+
+1. User submits signup with taken username
+2. Service throws `ValidationError('Username is already taken', 'username')`
+3. Action catches it and calls `returnValidationErrors(schema, { username: { _errors: [...] } })`
+4. Client receives `result.validationErrors.username` and displays error under username field
+
+### Benefits
+
+- **Field-specific errors**: Validation errors appear under the relevant field
+- **Security**: Technical errors are masked in production
+- **Type safety**: Custom error classes are typed and can be pattern matched
+- **Centralized**: All error handling logic in one place (`handleServerError`)
+- **Reusable**: Services can be used anywhere (actions, cron jobs, webhooks)
 
 ## Server Actions with next-safe-action
 
@@ -375,10 +435,13 @@ Zod Schema → Drizzle Schema → Services → Actions → Client
 - Protected routes with automatic redirects
 
 ### Error Handling
-- Sensitive errors masked in production
-- Detailed errors in development
+- **Custom error classes** for different error types
+- **Validation errors** displayed under relevant form fields
+- **Authentication errors** shown to users
+- **Technical errors** (database, external APIs) masked in production
+- **Centralized error handling** in `handleServerError`
 - Email enumeration prevention (password reset)
-- Centralized error logging
+- Detailed error logging in development
 
 ### Database Security
 - Prepared statements disabled (required for Transaction Pooler)

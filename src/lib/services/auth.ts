@@ -3,13 +3,14 @@
 import { createClient } from '@/lib/supabase/server';
 import type { SignUpInput, SignInInput, ResetPasswordConfirmInput } from '@/lib/schemas/auth';
 import type { User } from '@/lib/types';
-import { createUser, getUserByEmail, isUsernameAvailable } from '@/lib/db/queries/users';
+import { createUser, getUserByEmail, isUsernameAvailable, isEmailAvailable } from '@/lib/db/queries/users';
+import { ValidationError, AuthenticationError, DatabaseError } from '@/lib/errors';
 
 /**
  * Authentication service functions
  *
- * Pure business logic - no validation, no error formatting.
- * Throws errors on failure - actions handle error formatting.
+ * Pure business logic - throws custom errors for different failure scenarios.
+ * Actions intercept these errors and handle them appropriately.
  * Reusable across actions, cron jobs, webhooks, etc.
  */
 
@@ -18,13 +19,21 @@ import { createUser, getUserByEmail, isUsernameAvailable } from '@/lib/db/querie
  *
  * @param input - Validated signup data
  * @returns Created user
- * @throws Error if username taken or auth fails
+ * @throws ValidationError if username/email already exists
+ * @throws AuthenticationError if auth creation fails
+ * @throws DatabaseError if database operation fails
  */
 export const signUpUser = async (input: SignUpInput): Promise<User> => {
-  // Check username availability
+  // Check username availability in database
   const usernameAvailable = await isUsernameAvailable(input.username);
   if (!usernameAvailable) {
-    throw new Error('Username is already taken');
+    throw new ValidationError('Username is already taken', 'username');
+  }
+
+  // Check email availability in database
+  const emailAvailable = await isEmailAvailable(input.email);
+  if (!emailAvailable) {
+    throw new ValidationError('Email is already registered', 'email');
   }
 
   // Create Supabase Auth user
@@ -35,28 +44,34 @@ export const signUpUser = async (input: SignUpInput): Promise<User> => {
   });
 
   if (authError) {
-    throw new Error(authError.message);
+    // Store original error for logging, but return generic message to client
+    throw new AuthenticationError('Failed to create account. Please try again later.', authError);
   }
 
   if (!authData.user) {
-    throw new Error('Failed to create user account');
+    throw new AuthenticationError('Failed to create user account');
   }
 
   // Create user profile in database
-  const user = await createUser({
-    id: authData.user.id,
-    email: input.email,
-    username: input.username,
-  });
+  try {
+    const user = await createUser({
+      id: authData.user.id,
+      email: input.email,
+      username: input.username,
+    });
 
-  return user;
+    return user;
+  } catch (error) {
+    // Database error during user creation
+    throw new DatabaseError('Failed to create user profile', error);
+  }
 };
 
 /**
  * Sign in user
  *
  * @param input - Validated signin data
- * @throws Error if credentials invalid
+ * @throws AuthenticationError if credentials invalid
  */
 export const signInUser = async (input: SignInInput): Promise<void> => {
   const supabase = await createClient();
@@ -66,21 +81,21 @@ export const signInUser = async (input: SignInInput): Promise<void> => {
   });
 
   if (authError) {
-    throw new Error('Invalid email or password');
+    throw new AuthenticationError('Invalid email or password', authError);
   }
 };
 
 /**
  * Sign out current user
  *
- * @throws Error if signout fails
+ * @throws AuthenticationError if signout fails
  */
 export const signOutUser = async (): Promise<void> => {
   const supabase = await createClient();
   const { error } = await supabase.auth.signOut();
 
   if (error) {
-    throw new Error(error.message);
+    throw new AuthenticationError('Failed to sign out. Please try again.', error);
   }
 };
 
@@ -103,7 +118,7 @@ export const requestPasswordReset = async (email: string): Promise<void> => {
  * Reset password with token
  *
  * @param input - New password data
- * @throws Error if password update fails
+ * @throws AuthenticationError if password update fails
  */
 export const resetPassword = async (input: ResetPasswordConfirmInput): Promise<void> => {
   const supabase = await createClient();
@@ -112,18 +127,18 @@ export const resetPassword = async (input: ResetPasswordConfirmInput): Promise<v
   });
 
   if (authError) {
-    throw new Error(authError.message);
+    throw new AuthenticationError('Failed to reset password. Please try again.', authError);
   }
 };
 
 /**
  * Update password for authenticated user
  *
- * @param userId - User ID
  * @param email - User email
  * @param currentPassword - Current password (for verification)
  * @param newPassword - New password
- * @throws Error if current password wrong or update fails
+ * @throws ValidationError if current password is incorrect
+ * @throws AuthenticationError if password update fails
  */
 export const updateUserPassword = async (
   email: string,
@@ -139,7 +154,7 @@ export const updateUserPassword = async (
   });
 
   if (signInError) {
-    throw new Error('Current password is incorrect');
+    throw new ValidationError('Current password is incorrect', 'currentPassword', signInError);
   }
 
   // Update to new password
@@ -148,7 +163,7 @@ export const updateUserPassword = async (
   });
 
   if (updateError) {
-    throw new Error(updateError.message);
+    throw new AuthenticationError('Failed to update password. Please try again.', updateError);
   }
 };
 

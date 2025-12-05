@@ -1,41 +1,84 @@
 import { createSafeActionClient, DEFAULT_SERVER_ERROR_MESSAGE } from 'next-safe-action';
 import { getCurrentUser } from '@/lib/services/auth';
+import {
+  ValidationError,
+  AuthenticationError,
+  DatabaseError,
+  ExternalAPIError,
+} from '@/lib/errors';
 
 /**
  * Base action client for public actions
  *
  * Features:
  * - Automatic input validation with Zod schemas
- * - Centralized error handling
+ * - Centralized error handling with custom error classes
  * - Type-safe from server to client
- * - Development logging
+ * - Development logging with full error details
+ * - Production error masking for security
+ *
+ * Error Handling Strategy:
+ * - ValidationError: User-friendly message (displayed to user)
+ * - AuthenticationError: User-friendly message (displayed to user)
+ * - DatabaseError: Generic message (masked in production)
+ * - ExternalAPIError: Generic message (masked in production)
+ * - Unknown errors: Masked with DEFAULT_SERVER_ERROR_MESSAGE
+ *
+ * @see https://next-safe-action.dev/docs/define-actions/create-the-client#handleservererror
  */
 export const actionClient = createSafeActionClient({
   handleServerError(e, utils) {
-    // Log errors in development for debugging
+    // Development logging - full error details
     if (process.env['NODE_ENV'] === 'development') {
       console.error('[ACTION_ERROR]', {
+        type: e.name,
         message: e.message,
-        name: e.name,
         stack: e.stack,
+        cause: e.cause, // Original error (e.g., Supabase error)
         clientInput: utils.clientInput,
         metadata: utils.metadata,
+        timestamp: new Date().toISOString(),
       });
     }
 
-    // Log to production monitoring (Sentry, etc.) in production
+    // Production logging - minimal details (add Sentry/monitoring here)
     if (process.env['NODE_ENV'] === 'production') {
-      // TODO: Add Sentry logging here
-      console.error('[ACTION_ERROR]', e.message);
+      // TODO: Add Sentry/DataDog/CloudWatch logging
+      console.error('[ACTION_ERROR]', {
+        type: e.name,
+        message: e.message,
+        cause: e.cause, // Original error for debugging (not exposed to client)
+        timestamp: new Date().toISOString(),
+      });
     }
 
-    // Return user-friendly error messages
-    // In production, hide implementation details
-    if (process.env['NODE_ENV'] === 'production') {
-      return DEFAULT_SERVER_ERROR_MESSAGE;
+    // Error handling by type
+    // ValidationError: Return message to user (business logic errors)
+    if (e instanceof ValidationError) {
+      return e.message;
     }
 
-    return e.message;
+    // AuthenticationError: Return message to user (auth failures)
+    if (e instanceof AuthenticationError) {
+      return e.message;
+    }
+
+    // DatabaseError: Mask in production
+    if (e instanceof DatabaseError) {
+      return process.env['NODE_ENV'] === 'production'
+        ? 'A database error occurred. Please try again later.'
+        : e.message;
+    }
+
+    // ExternalAPIError: Mask in production
+    if (e instanceof ExternalAPIError) {
+      return process.env['NODE_ENV'] === 'production'
+        ? 'An external service error occurred. Please try again later.'
+        : e.message;
+    }
+
+    // Unknown errors: Always mask with generic message
+    return process.env['NODE_ENV'] === 'production' ? DEFAULT_SERVER_ERROR_MESSAGE : e.message;
   },
 });
 

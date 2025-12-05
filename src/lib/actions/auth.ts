@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { returnValidationErrors } from 'next-safe-action';
 import { actionClient, authActionClient } from './safe-action';
 import {
   signUpSchema,
@@ -18,16 +19,17 @@ import {
   resetPassword as resetPasswordService,
   updateUserPassword,
 } from '@/lib/services/auth';
+import { ValidationError } from '@/lib/errors';
 
 /**
  * Authentication Actions with next-safe-action
  *
  * Responsibilities:
  * - Input validation (Zod schema)
- * - Error handling and formatting
+ * - Intercept service errors and convert ValidationErrors to returnValidationErrors
  * - Cache invalidation
  * - Redirects
- * - Call services for business logic
+ * - Error handling (other errors passed to handleServerError)
  */
 
 /**
@@ -42,15 +44,30 @@ import {
  * ```
  */
 export const signUpAction = actionClient.inputSchema(signUpSchema).action(async ({ parsedInput }) => {
-  // Call service for business logic
-  await signUpUser(parsedInput);
+  try {
+    // Call service for business logic
+    await signUpUser(parsedInput);
 
-  revalidatePath('/', 'layout');
+    revalidatePath('/', 'layout');
 
-  return {
-    success: true,
-    message: 'Account created successfully! Please check your email to verify your account.',
-  };
+    return {
+      success: true,
+      message: 'Account created successfully! Please check your email to verify your account.',
+    };
+  } catch (error) {
+    // Convert ValidationError to next-safe-action validation errors
+    // This displays the error under the specific field in the form
+    if (error instanceof ValidationError && error.field) {
+      returnValidationErrors(signUpSchema, {
+        [error.field]: {
+          _errors: [error.message],
+        },
+      });
+    }
+
+    // Re-throw other errors (will be handled by handleServerError)
+    throw error;
+  }
 });
 
 /**
@@ -126,11 +143,25 @@ export const resetPasswordAction = actionClient
 export const updatePasswordAction = authActionClient
   .inputSchema(updatePasswordSchema)
   .action(async ({ parsedInput, ctx }) => {
-    // Call service for business logic
-    await updateUserPassword(ctx.user.email!, parsedInput.currentPassword, parsedInput.newPassword);
+    try {
+      // Call service for business logic
+      await updateUserPassword(ctx.user.email!, parsedInput.currentPassword, parsedInput.newPassword);
 
-    return {
-      success: true,
-      message: 'Password updated successfully!',
-    };
+      return {
+        success: true,
+        message: 'Password updated successfully!',
+      };
+    } catch (error) {
+      // Convert ValidationError to next-safe-action validation errors
+      if (error instanceof ValidationError && error.field) {
+        returnValidationErrors(updatePasswordSchema, {
+          [error.field]: {
+            _errors: [error.message],
+          },
+        });
+      }
+
+      // Re-throw other errors (will be handled by handleServerError)
+      throw error;
+    }
   });
