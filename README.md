@@ -14,6 +14,7 @@ A production-ready Next.js boilerplate with authentication, database, and type-s
 - **Drizzle ORM** - Type-safe database queries
 - **PostgreSQL** - Database via Supabase (Transaction Pooler)
 - **next-safe-action** - Type-safe server actions with validation
+- **LemonSqueezy** - Subscription billing and payments
 
 ### Validation & Types
 - **Zod** - Runtime validation and type inference
@@ -26,15 +27,20 @@ src/
 ├── lib/
 │   ├── actions/           # Server actions with next-safe-action
 │   │   ├── safe-action.ts # Action client configuration
-│   │   └── auth.ts        # Auth actions (signup, login, etc.)
+│   │   ├── auth.ts        # Auth actions (signup, login, etc.)
+│   │   └── billing.ts     # Billing actions (checkout, subscription)
 │   │
 │   ├── services/          # Business logic layer
-│   │   └── auth.ts        # Auth services (reusable functions)
+│   │   ├── auth.ts        # Auth services (reusable functions)
+│   │   ├── billing.ts     # Billing services (checkout, sync plans)
+│   │   └── webhooks.ts    # Webhook processing services
 │   │
 │   ├── db/                # Database layer
 │   │   ├── schema.ts      # Drizzle schema definitions
 │   │   ├── connection.ts  # Database client configuration
 │   │   ├── queries/       # Type-safe query functions
+│   │   │   ├── auth.ts    # Auth queries
+│   │   │   └── billing.ts # Billing queries
 │   │   └── migrations/    # SQL migrations
 │   │
 │   ├── supabase/          # Supabase clients
@@ -42,14 +48,34 @@ src/
 │   │   ├── client.ts      # Client-side client (browser)
 │   │   └── middleware.ts  # Session refresh helper
 │   │
+│   ├── config/            # Configuration files
+│   │   └── lemonsqueezy.ts # LemonSqueezy SDK setup
+│   │
 │   ├── schemas/           # Zod validation schemas
-│   │   └── auth.ts        # Auth input validation
+│   │   ├── auth.ts        # Auth input validation
+│   │   └── billing.ts     # Billing input validation
 │   │
 │   ├── errors.ts          # Custom error classes
-│   └── types.ts           # Centralized type definitions
+│   └── types/             # Centralized type definitions
+│       ├── index.ts       # Type exports
+│       ├── auth.ts        # Auth types
+│       └── billing.ts     # Billing types
+│
+├── components/
+│   ├── ui/                # ShadCN components
+│   └── billing/           # Billing components
+│       ├── pricing-card.tsx      # Plan display card
+│       └── subscription-card.tsx # User subscription card
 │
 ├── middleware.ts          # Route protection & session refresh
+├── scripts/               # Utility scripts
+│   └── sync-plans.ts      # Sync plans from LemonSqueezy
 └── app/                   # Next.js App Router
+    ├── pricing/           # Pricing page
+    ├── dashboard/         # Dashboard with subscription
+    └── api/
+        └── webhooks/
+            └── lemonsqueezy/ # Webhook handler
 ```
 
 ## Architecture Principles
@@ -321,6 +347,144 @@ export function SignUpForm() {
 - `resetPasswordConfirmSchema` - Password, confirm password
 - `updatePasswordSchema` - Current password, new password, confirm
 
+## Subscription Billing with LemonSqueezy
+
+### Overview
+
+The boilerplate includes a complete subscription billing system using LemonSqueezy:
+
+- **Plan Management** - Sync plans from LemonSqueezy API
+- **Checkout Flow** - Redirect users to LemonSqueezy payment page
+- **Webhook Processing** - Automatic subscription sync via webhooks
+- **Customer Portal** - Manage subscriptions via LemonSqueezy portal
+- **Type-safe** - Full TypeScript support across the billing stack
+
+### Database Schema
+
+**Plans Table** (`plans`):
+- Stores subscription plans synced from LemonSqueezy
+- Fields: name, price, interval (month/year), variant_id, is_active
+
+**Subscriptions Table** (`subscriptions`):
+- User subscriptions with status and renewal dates
+- Foreign keys: user_id, plan_id
+- LemonSqueezy data: customer_id, order_id, portal URLs
+
+**Webhook Events Table** (`webhook_events`):
+- Logs all webhook events for idempotency and debugging
+- Store-then-process pattern for reliability
+
+### Setup Instructions
+
+**1. Create LemonSqueezy Account**
+- Sign up at https://lemonsqueezy.com
+- Create your store
+
+**2. Create Products**
+- Go to Products → Create Product
+- Add variants (pricing) for each product
+- Publish products
+
+**3. Get API Credentials**
+
+```bash
+# API Key (https://app.lemonsqueezy.com/settings/api)
+LEMONSQUEEZY_API_KEY=lmsk_your_api_key_here
+
+# Store ID (https://app.lemonsqueezy.com/settings/stores)
+LEMONSQUEEZY_STORE_ID=12345
+
+# Webhook Secret (generate a random string)
+# Command: node -e "console.log(require('crypto').randomBytes(20).toString('hex'))"
+LEMONSQUEEZY_WEBHOOK_SECRET=your_random_secret_here
+```
+
+**4. Sync Plans to Database**
+
+```bash
+npm run sync:plans
+```
+
+This fetches all products from LemonSqueezy and stores them in your database.
+
+**5. Configure Webhook (Production Only)**
+
+- Go to https://app.lemonsqueezy.com/settings/webhooks
+- Create webhook with URL: `https://yourdomain.com/api/webhooks/lemonsqueezy`
+- Select all `subscription_*` events
+- Use the same `LEMONSQUEEZY_WEBHOOK_SECRET` from step 3
+
+**Note:** Webhooks require HTTPS. For local testing, use ngrok or skip webhooks in development.
+
+### Billing Flow
+
+**1. User Views Plans** (`/pricing`)
+- Displays all active plans from database
+- User clicks "Subscribe" button
+
+**2. Checkout Creation**
+- Action calls `createCheckoutUrl()` service
+- Service creates LemonSqueezy checkout with user_id in custom_data
+- User redirected to LemonSqueezy payment page
+
+**3. User Completes Payment**
+- LemonSqueezy processes payment
+- User redirected back to your app
+
+**4. Webhook Processing**
+- LemonSqueezy sends `subscription_created` webhook
+- Webhook stored in database (idempotency)
+- Subscription synced to database asynchronously
+- User can now access subscription features
+
+**5. Subscription Management**
+- User views subscription in dashboard
+- "Manage Subscription" redirects to LemonSqueezy Customer Portal
+- User can update payment method, cancel, etc.
+
+### Available Actions
+
+**Public Actions:**
+- `getPlansAction` - Fetch all active plans
+- `createCheckoutAction` - Create checkout and redirect to payment
+
+**Authenticated Actions:**
+- `getUserSubscriptionAction` - Get user's current subscription
+
+### Components
+
+**PricingCard** (`components/billing/pricing-card.tsx`):
+- Displays plan details (name, price, interval)
+- Subscribe button triggers checkout
+
+**SubscriptionCard** (`components/billing/subscription-card.tsx`):
+- Shows current subscription status
+- Renewal/expiration dates
+- Link to Customer Portal
+
+### Security Features
+
+- **Webhook Signature Verification** - Validates webhooks are from LemonSqueezy
+- **Store-then-Process Pattern** - Ensures idempotency
+- **Custom Error Handling** - Uses ValidationError and ExternalAPIError
+- **Type-safe** - Full TypeScript coverage
+
+### Troubleshooting
+
+**"No plans available"**
+- Run `npm run sync:plans` to sync from LemonSqueezy
+- Ensure products are published in LemonSqueezy dashboard
+
+**"Failed to create checkout"**
+- Verify LEMONSQUEEZY_API_KEY is correct
+- Check plan exists and is active
+- Ensure user doesn't already have a subscription
+
+**"Webhook not working"**
+- Verify LEMONSQUEEZY_WEBHOOK_SECRET matches in both places
+- Check webhook URL is accessible (HTTPS required)
+- Review webhook_events table for error messages
+
 ## Environment Variables
 
 Create `.env.local` file:
@@ -338,6 +502,11 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 # Database (Supabase Transaction Pooler)
 DATABASE_PASSWORD=your-db-password
 DATABASE_URL=postgresql://postgres.tenant_id:password@aws-region.pooler.supabase.com:6543/postgres
+
+# LemonSqueezy (Billing)
+LEMONSQUEEZY_API_KEY=lmsk_your_api_key_here
+LEMONSQUEEZY_STORE_ID=12345
+LEMONSQUEEZY_WEBHOOK_SECRET=your_webhook_secret_here
 ```
 
 **Note:** Use the new Supabase API key format (`sb_publishable_*` and `sb_secret_*`) for future compatibility. Legacy `anon` keys will be deprecated in 2026.
@@ -385,6 +554,9 @@ npm start
 npm run db:generate   # Generate migration
 npm run db:migrate    # Apply migrations
 npm run db:studio     # Open database GUI
+
+# Billing commands
+npm run sync:plans    # Sync plans from LemonSqueezy
 ```
 
 ## Type Safety

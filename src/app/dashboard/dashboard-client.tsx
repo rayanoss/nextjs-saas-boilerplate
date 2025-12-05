@@ -1,16 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useAction } from 'next-safe-action/hooks';
 import { signOutAction, updatePasswordAction } from '@/lib/actions/auth';
+import { getUserSubscriptionAction } from '@/lib/actions/billing';
 import { updatePasswordSchema, type UpdatePasswordInput } from '@/lib/schemas/auth';
-import type { User } from '@/lib/types';
+import type { User, SubscriptionWithPlan } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { SubscriptionCard } from '@/components/billing';
 
 interface DashboardClientProps {
   user: User;
@@ -18,6 +20,7 @@ interface DashboardClientProps {
 
 export function DashboardClient({ user }: DashboardClientProps) {
   const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [subscription, setSubscription] = useState<SubscriptionWithPlan | null>(null);
 
   const passwordForm = useForm<UpdatePasswordInput>({
     resolver: zodResolver(updatePasswordSchema),
@@ -40,6 +43,22 @@ export function DashboardClient({ user }: DashboardClientProps) {
       setShowPasswordForm(false);
     },
   });
+
+  const {
+    execute: executeGetSubscription,
+    isExecuting: isLoadingSubscription,
+    result: subscriptionResult,
+  } = useAction(getUserSubscriptionAction);
+
+  useEffect(() => {
+    executeGetSubscription();
+  }, []);
+
+  useEffect(() => {
+    if (subscriptionResult?.data?.subscription) {
+      setSubscription(subscriptionResult.data.subscription);
+    }
+  }, [subscriptionResult]);
 
   const handleSignOut = () => {
     executeSignOut();
@@ -77,6 +96,35 @@ export function DashboardClient({ user }: DashboardClientProps) {
             </div>
           </CardContent>
         </Card>
+
+        {isLoadingSubscription ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Subscription</CardTitle>
+              <CardDescription>Loading your subscription...</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-center p-8">
+                <div className="text-muted-foreground">Loading...</div>
+              </div>
+            </CardContent>
+          </Card>
+        ) : subscription ? (
+          <SubscriptionCard subscription={subscription} />
+        ) : (
+          <Card>
+            <CardHeader>
+              <CardTitle>Subscription</CardTitle>
+              <CardDescription>You don't have an active subscription</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Subscribe to a plan to unlock all features
+              </p>
+              <Button onClick={() => (window.location.href = '/pricing')}>View Plans</Button>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
