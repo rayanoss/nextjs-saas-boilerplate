@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__get-library-docs",
+      "Bash(mkdir:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run typecheck:*)"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"[Before Edit] Running typecheck...\" && if ! npm run typecheck --silent; then echo \"[Before Edit] Typecheck failed — forcing Claude to fix errors.\"; exit 2; fi"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"[After Edit] Running build...\" && if ! npm run build --silent; then echo \"[After Edit] Build failed — forcing Claude to fix errors.\"; exit 2; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
