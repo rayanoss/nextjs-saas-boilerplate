@@ -2,13 +2,9 @@
 
 import { redirect } from 'next/navigation';
 import { returnValidationErrors } from 'next-safe-action';
-import { actionClient, authActionClient } from './safe-action';
+import { authActionClient } from './safe-action';
 import { createCheckoutSchema } from '@/lib/schemas/billing';
-import {
-  getAvailablePlans,
-  getUserSubscription,
-  createCheckoutUrl,
-} from '@/lib/services/billing';
+import { createCheckoutUrl } from '@/lib/services/billing';
 import { ValidationError } from '@/lib/errors';
 
 /**
@@ -20,55 +16,11 @@ import { ValidationError } from '@/lib/errors';
  * - Cache invalidation
  * - Redirects
  * - Error handling (other errors passed to handleServerError)
+ *
+ * Note: GET operations are handled as follows:
+ * - Plans (global data): Server-side cache in services/billing.ts (getAvailablePlans)
+ * - Subscription (user data): Route Handler /api/billing/subscription + TanStack Query hook (useSubscription)
  */
-
-/**
- * Get available plans action
- *
- * Returns all active subscription plans.
- * Public action - no authentication required.
- *
- * Client usage:
- * ```tsx
- * const { execute, isExecuting, result } = useAction(getPlansAction);
- * useEffect(() => {
- *   execute();
- * }, []);
- * ```
- */
-export const getPlansAction = actionClient.action(async () => {
-  // Call service for business logic
-  const plans = await getAvailablePlans();
-
-  return {
-    success: true,
-    plans,
-  };
-});
-
-/**
- * Get user subscription action
- *
- * Returns current user's active subscription with plan details.
- * Requires authentication.
- *
- * Client usage:
- * ```tsx
- * const { execute, isExecuting, result } = useAction(getUserSubscriptionAction);
- * useEffect(() => {
- *   execute();
- * }, []);
- * ```
- */
-export const getUserSubscriptionAction = authActionClient.action(async ({ ctx }) => {
-  // Call service for business logic
-  const subscription = await getUserSubscription(ctx.userId);
-
-  return {
-    success: true,
-    subscription,
-  };
-});
 
 /**
  * Create checkout action

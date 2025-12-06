@@ -1,7 +1,6 @@
 'use client';
 
-import { useAction } from 'next-safe-action/hooks';
-import { createCheckoutAction } from '@/lib/actions/billing';
+import { useCreateCheckout } from '@/lib/hooks/use-create-checkout';
 import type { Plan } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -15,6 +14,7 @@ interface PricingCardProps {
  *
  * Displays a subscription plan with pricing and subscribe button.
  * Redirects to LemonSqueezy checkout when user clicks subscribe.
+ * Automatically invalidates user subscription cache on success.
  *
  * Usage:
  * ```tsx
@@ -22,7 +22,7 @@ interface PricingCardProps {
  * ```
  */
 export function PricingCard({ plan }: PricingCardProps) {
-  const { execute, isExecuting, result } = useAction(createCheckoutAction);
+  const { execute, isExecuting, result } = useCreateCheckout();
 
   const handleSubscribe = () => {
     execute({

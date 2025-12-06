@@ -1,5 +1,6 @@
 'use server';
 
+import { unstable_cache } from 'next/cache';
 import { createCheckout, listProducts, listPrices } from '@lemonsqueezy/lemonsqueezy.js';
 import { configureLemonSqueezy, getStoreId } from '@/lib/config/lemonsqueezy';
 import {
@@ -24,13 +25,37 @@ import { ValidationError, ExternalAPIError } from '@/lib/errors';
  * Get all active subscription plans
  *
  * Returns plans that users can subscribe to.
- * Results should be cached by the caller (actions layer).
+ * Data is cached server-side for 1 hour (global data, shared across all users).
+ * Cache can be invalidated on-demand with revalidateTag('plans').
  *
  * @returns Array of active plans
+ *
+ * @example
+ * ```typescript
+ * // In Server Component
+ * const plans = await getAvailablePlans();
+ *
+ * // In Route Handler
+ * export async function GET() {
+ *   const plans = await getAvailablePlans();
+ *   return Response.json({ data: plans });
+ * }
+ *
+ * // Invalidate cache after syncing plans
+ * await syncPlansFromLemonSqueezy();
+ * revalidateTag('plans');
+ * ```
  */
-export const getAvailablePlans = async (): Promise<Plan[]> => {
-  return await getActivePlans();
-};
+export const getAvailablePlans = unstable_cache(
+  async (): Promise<Plan[]> => {
+    return await getActivePlans();
+  },
+  ['available-plans'],
+  {
+    revalidate: 3600,
+    tags: ['plans'],
+  }
+);
 
 /**
  * Get user's current subscription with plan details

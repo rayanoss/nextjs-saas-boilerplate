@@ -14,6 +14,7 @@ A production-ready Next.js boilerplate with authentication, database, and type-s
 - **Drizzle ORM** - Type-safe database queries
 - **PostgreSQL** - Database via Supabase (Transaction Pooler)
 - **next-safe-action** - Type-safe server actions with validation
+- **TanStack Query** - Client-side data fetching and caching
 - **LemonSqueezy** - Subscription billing and payments
 
 ### Validation & Types
@@ -25,57 +26,28 @@ A production-ready Next.js boilerplate with authentication, database, and type-s
 ```
 src/
 ├── lib/
-│   ├── actions/           # Server actions with next-safe-action
-│   │   ├── safe-action.ts # Action client configuration
-│   │   ├── auth.ts        # Auth actions (signup, login, etc.)
-│   │   └── billing.ts     # Billing actions (checkout, subscription)
-│   │
-│   ├── services/          # Business logic layer
-│   │   ├── auth.ts        # Auth services (reusable functions)
-│   │   ├── billing.ts     # Billing services (checkout, sync plans)
-│   │   └── webhooks.ts    # Webhook processing services
-│   │
-│   ├── db/                # Database layer
-│   │   ├── schema.ts      # Drizzle schema definitions
-│   │   ├── connection.ts  # Database client configuration
-│   │   ├── queries/       # Type-safe query functions
-│   │   │   ├── auth.ts    # Auth queries
-│   │   │   └── billing.ts # Billing queries
-│   │   └── migrations/    # SQL migrations
-│   │
-│   ├── supabase/          # Supabase clients
-│   │   ├── server.ts      # Server-side client
-│   │   ├── client.ts      # Client-side client (browser)
-│   │   └── middleware.ts  # Session refresh helper
-│   │
-│   ├── config/            # Configuration files
-│   │   └── lemonsqueezy.ts # LemonSqueezy SDK setup
-│   │
+│   ├── actions/           # Server actions with next-safe-action (mutations only)
+│   ├── hooks/             # Client-side hooks (TanStack Query for user data)
+│   ├── providers/         # React context providers (QueryProvider)
+│   ├── services/          # Business logic layer (pure functions)
+│   ├── db/                # Database layer (Drizzle schema, queries, migrations)
+│   ├── supabase/          # Supabase clients (server, browser, middleware)
+│   ├── config/            # Configuration files (LemonSqueezy SDK)
 │   ├── schemas/           # Zod validation schemas
-│   │   ├── auth.ts        # Auth input validation
-│   │   └── billing.ts     # Billing input validation
-│   │
-│   ├── errors.ts          # Custom error classes
-│   └── types/             # Centralized type definitions
-│       ├── index.ts       # Type exports
-│       ├── auth.ts        # Auth types
-│       └── billing.ts     # Billing types
+│   ├── types/             # Centralized TypeScript type definitions
+│   └── errors.ts          # Custom error classes
 │
 ├── components/
-│   ├── ui/                # ShadCN components
-│   └── billing/           # Billing components
-│       ├── pricing-card.tsx      # Plan display card
-│       └── subscription-card.tsx # User subscription card
+│   ├── ui/                # ShadCN UI components
+│   ├── billing/           # Billing-related components
+│   └── dashboard/         # Dashboard section components
 │
-├── middleware.ts          # Route protection & session refresh
-├── scripts/               # Utility scripts
-│   └── sync-plans.ts      # Sync plans from LemonSqueezy
-└── app/                   # Next.js App Router
-    ├── pricing/           # Pricing page
-    ├── dashboard/         # Dashboard with subscription
-    └── api/
-        └── webhooks/
-            └── lemonsqueezy/ # Webhook handler
+├── app/                   # Next.js App Router
+│   ├── (pages)/           # Public and authenticated pages
+│   └── api/               # Route Handlers and webhooks
+│
+├── scripts/               # Utility scripts (sync plans, retry webhooks)
+└── middleware.ts          # Route protection & session refresh
 ```
 
 ## Architecture Principles
@@ -318,6 +290,119 @@ export function SignUpForm() {
 }
 ```
 
+## Caching Strategy
+
+### Overview
+
+The boilerplate implements a **hybrid caching strategy** that combines server-side and client-side caching for optimal performance and scalability.
+
+### Architecture Principles
+
+**Server-side Cache (`unstable_cache`)** - For global data shared across all users
+- ✅ Use for: Plans, pricing, public content
+- ✅ Benefits: Reduces database queries, shared across all users
+- ❌ Avoid for: User-specific data (scalability issue - one cache entry per user)
+
+**Client-side Cache (TanStack Query)** - For user-specific data
+- ✅ Use for: User subscriptions, preferences, personalized data
+- ✅ Benefits: Scalable (cache stored in user's browser), instant navigation
+- ❌ Avoid for: Global data that changes frequently
+
+### Data Fetching Patterns
+
+**Pattern 1: Global Data (Plans)**
+```typescript
+// Service with server-side cache
+export const getAvailablePlans = unstable_cache(
+  async (): Promise<Plan[]> => {
+    return await getActivePlans();
+  },
+  ['available-plans'],
+  { revalidate: 3600, tags: ['plans'] }
+);
+
+// Server Component directly calls service
+export default async function PricingPage() {
+  const plans = await getAvailablePlans(); // Cached for 1 hour
+  return <PricingCards plans={plans} />;
+}
+```
+
+**Pattern 2: User-Specific Data (Subscription)**
+```typescript
+// Route Handler (no server cache)
+export async function GET() {
+  const user = await getCurrentUser();
+  const subscription = await getUserSubscription(user.id); // Not cached server-side
+  return Response.json(subscription);
+}
+
+// TanStack Query hook (client cache)
+export function useSubscription() {
+  return useQuery({
+    queryKey: ['subscription'],
+    queryFn: fetchSubscription,
+    staleTime: 5 * 60 * 1000, // 5 minutes client cache
+  });
+}
+
+// Client Component uses hook
+export function SubscriptionSection() {
+  const { data, isLoading } = useSubscription();
+  // Cache stored in user's browser
+}
+```
+
+**Pattern 3: Mutations with Cache Invalidation**
+```typescript
+// Mutation hook wraps Server Action
+export function useCreateCheckout() {
+  const queryClient = useQueryClient();
+
+  return useAction(createCheckoutAction, {
+    onSuccess: () => {
+      // Invalidate client cache after mutation
+      queryClient.invalidateQueries({ queryKey: ['subscription'] });
+    },
+  });
+}
+```
+
+### Cache Invalidation
+
+**Server-side Cache:**
+- Time-based: `revalidate: 3600` (1 hour)
+- Tag-based: `revalidateTag('plans')` in Server Actions
+- Use for: Global data that changes infrequently
+
+**Client-side Cache:**
+- Automatic: After mutations via `queryClient.invalidateQueries()`
+- Manual: `queryClient.refetchQueries()` or `router.refresh()`
+- Use for: User-specific data that changes after user actions
+
+### Why This Architecture?
+
+**Scalability:**
+- Server cache for global data: 1 cache entry shared across all users
+- Client cache for user data: 1M users = 1M browser caches, 0 server memory
+
+**Performance:**
+- Server cache: Reduces database queries
+- Client cache: Reduces HTTP requests, instant navigation
+
+**Best Practices:**
+- GET operations for user data: Route Handlers + TanStack Query
+- GET operations for global data: Server Components + `unstable_cache`
+- Mutations: Server Actions with `next-safe-action`
+
+### Available Hooks
+
+**Query Hooks:**
+- `useSubscription()` - Fetch user's subscription with client-side caching
+
+**Mutation Hooks:**
+- `useCreateCheckout()` - Create checkout with automatic cache invalidation
+
 ## Validation Schemas
 
 ### Zod Schemas (`lib/schemas/auth.ts`)
@@ -556,7 +641,8 @@ npm run db:migrate    # Apply migrations
 npm run db:studio     # Open database GUI
 
 # Billing commands
-npm run sync:plans    # Sync plans from LemonSqueezy
+npm run sync:plans       # Sync plans from LemonSqueezy
+npm run retry:webhooks   # Retry failed webhook processing
 ```
 
 ## Type Safety
