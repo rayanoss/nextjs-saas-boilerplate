@@ -11,27 +11,21 @@
     "ask": []
   },
   "hooks": {
-    "PreToolUse": [
+    "PreToolUse": [],
+   "PostToolUse": [
+  {
+    "matcher": "Edit|Write",
+    "hooks": [
       {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo \"[Before Edit] Running typecheck...\" && if ! npm run typecheck --silent; then echo \"[Before Edit] Typecheck failed — forcing Claude to fix errors.\"; exit 2; fi"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
+        "type": "command",
+        "command": "echo \"[After Edit] Running typecheck...\" && if ! npm run typecheck --silent; then echo \"[After Edit] Type errors — Claude must fix.\"; exit 2; fi"
+      },
       {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo \"[After Edit] Running build...\" && if ! npm run build --silent; then echo \"[After Edit] Build failed — forcing Claude to fix errors.\"; exit 2; fi"
-          }
-        ]
+        "type": "command",
+        "command": "echo \"[After Edit] Running build...\" && if ! npm run build --silent; then echo \"[After Edit] Build failed — Claude must fix.\"; exit 2; fi"
       }
     ]
+  }
+  ]
   }
 }

@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "sync:plans": "dotenv -e .env.local -- npx tsx scripts/sync-plans.ts",
-    "retry:webhooks": "dotenv -e .env.local -- npx tsx scripts/retry-webhooks.ts"
+    "retry:webhooks": "dotenv -e .env.local -- npx tsx scripts/retry-webhooks.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

@@ -792,6 +792,24 @@ test('signUpUser creates user', async () => {
 });
 ```
 
+## Action Helpers
+
+### What was done
+Created a reusable helper function to eliminate repetitive ValidationError handling code in actions.
+
+### Details
+- **New file**: `src/lib/actions/helpers.ts` containing `handleValidationError` function
+- **Purpose**: Converts service-layer `ValidationError` instances to next-safe-action field-specific validation errors
+- **Benefits**:
+  - Eliminates 7-line repetitive pattern across actions
+  - Single line usage: `handleValidationError(error, schema)`
+  - Maintains separation of concerns (services remain framework-agnostic)
+  - Scalable for future actions requiring ValidationError handling
+- **Updated files**: `src/lib/actions/auth.ts` now uses the helper in `signUpAction` and `updatePasswordAction`
+- **Type safety**: Accepts `unknown` error parameter with internal type checking
+- **Configuration**: Added `typecheck` script to `package.json` for TypeScript validation
+- **Hook configuration**: Updated `.claude/settings.json` to move typecheck from pre-edit to post-edit hooks
+
 ## License
 
 MIT
