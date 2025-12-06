@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useSubscription } from '@/lib/hooks/use-subscription';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,6 +8,7 @@ import { SubscriptionCard } from '@/components/billing';
 
 
 export function SubscriptionSection() {
+	const router = useRouter();
 	const { data: subscription, isLoading } = useSubscription();
 
 	if (isLoading) {
@@ -39,7 +41,7 @@ export function SubscriptionSection() {
 				<p className="mb-4 text-sm text-muted-foreground">
 					Subscribe to a plan to unlock all features
 				</p>
-				<Button onClick={() => (window.location.href = '/pricing')}>View Plans</Button>
+				<Button onClick={() => router.push('/pricing')}>View Plans</Button>
 			</CardContent>
 		</Card>
 	);

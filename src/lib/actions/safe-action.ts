@@ -2,6 +2,7 @@ import { createSafeActionClient, DEFAULT_SERVER_ERROR_MESSAGE } from 'next-safe-
 import { getCurrentUser } from '@/lib/services/auth';
 import {
   ValidationError,
+  BusinessError,
   AuthenticationError,
   DatabaseError,
   ExternalAPIError,
@@ -18,8 +19,9 @@ import {
  * - Production error masking for security
  *
  * Error Handling Strategy:
- * - ValidationError: User-friendly message (displayed to user)
- * - AuthenticationError: User-friendly message (displayed to user)
+ * - ValidationError: Field-specific validation error (handled by returnValidationErrors in actions)
+ * - BusinessError: User-friendly business logic error (displayed to user)
+ * - AuthenticationError: User-friendly auth error (displayed to user)
  * - DatabaseError: Generic message (masked in production)
  * - ExternalAPIError: Generic message (masked in production)
  * - Unknown errors: Masked with DEFAULT_SERVER_ERROR_MESSAGE
@@ -53,8 +55,15 @@ export const actionClient = createSafeActionClient({
     }
 
     // Error handling by type
-    // ValidationError: Return message to user (business logic errors)
+    // ValidationError: Should be handled in actions with returnValidationErrors
+    // If it reaches here, it means the action didn't handle it properly
     if (e instanceof ValidationError) {
+      return e.message;
+    }
+
+    // BusinessError: Return message to user (business logic violations)
+    // Examples: "Plan not found", "You already have a subscription"
+    if (e instanceof BusinessError) {
       return e.message;
     }
 

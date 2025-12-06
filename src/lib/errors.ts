@@ -50,6 +50,31 @@ export class ValidationError extends AppError {
 }
 
 /**
+ * Business Error - For business rule violations
+ *
+ * Use this when a business constraint is violated but it's not tied to a specific form field.
+ * These are expected errors that should be shown to the user as-is (not masked).
+ *
+ * Examples:
+ * - User already has a subscription
+ * - Resource not found
+ * - Insufficient credits/quota
+ * - Operation not allowed in current state
+ *
+ * @example
+ * ```ts
+ * throw new BusinessError('You already have an active subscription');
+ * throw new BusinessError('Plan not found');
+ * throw new BusinessError('Insufficient credits to perform this action');
+ * ```
+ */
+export class BusinessError extends AppError {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause);
+  }
+}
+
+/**
  * Authentication Error - For authentication/authorization failures
  *
  * Use this when credentials are invalid, session expired, or user lacks permission.

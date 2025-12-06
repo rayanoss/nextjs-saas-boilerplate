@@ -25,9 +25,12 @@ export function PricingCard({ plan }: PricingCardProps) {
   const { execute, isExecuting, result } = useCreateCheckout();
 
   const handleSubscribe = () => {
+    const appUrl = process.env['NEXT_PUBLIC_APP_URL'];
+    const redirectUrl = appUrl ? `${appUrl}/dashboard` : '/dashboard';
+
     execute({
       planId: plan.id,
-      redirectUrl: `${window.location.origin}/dashboard`,
+      redirectUrl,
     });
   };
 

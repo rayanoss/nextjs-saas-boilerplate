@@ -11,7 +11,7 @@ import {
 } from '@/lib/db/queries/billing';
 import { processUserPendingWebhooks } from '@/lib/services/webhooks';
 import type { Plan, CheckoutOptions, SubscriptionWithPlan } from '@/lib/types';
-import { ValidationError, ExternalAPIError } from '@/lib/errors';
+import { BusinessError, ExternalAPIError } from '@/lib/errors';
 
 /**
  * Billing service functions
@@ -88,7 +88,7 @@ export const getUserSubscription = async (userId: string): Promise<SubscriptionW
  *
  * @param options - Checkout configuration
  * @returns Checkout URL
- * @throws ValidationError if plan doesn't exist, is inactive, or user already has subscription
+ * @throws BusinessError if plan doesn't exist, is inactive, or user already has subscription
  * @throws ExternalAPIError if LemonSqueezy API fails
  *
  * @example
@@ -112,18 +112,18 @@ export const createCheckoutUrl = async (options: CheckoutOptions): Promise<strin
     if (existingSubscription.subscription.customerPortalUrl) {
       return existingSubscription.subscription.customerPortalUrl;
     }
-    throw new ValidationError('You already have an active subscription');
+    throw new BusinessError('You already have an active subscription');
   }
 
   // Validate plan exists and is active
   const plan = await getPlanById(planId);
 
   if (!plan) {
-    throw new ValidationError('Plan not found');
+    throw new BusinessError('Plan not found');
   }
 
   if (!plan.isActive) {
-    throw new ValidationError('This plan is no longer available');
+    throw new BusinessError('This plan is no longer available');
   }
 
   // Configure LemonSqueezy SDK
@@ -162,7 +162,7 @@ export const createCheckoutUrl = async (options: CheckoutOptions): Promise<strin
     return checkout.data.data.attributes.url;
   } catch (error) {
     // Re-throw custom errors
-    if (error instanceof ValidationError || error instanceof ExternalAPIError) {
+    if (error instanceof BusinessError || error instanceof ExternalAPIError) {
       throw error;
     }
 

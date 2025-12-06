@@ -23,7 +23,7 @@ import { createCheckoutAction } from '@/lib/actions/billing';
  *   const handleSubscribe = () => {
  *     execute({
  *       planId: plan.id,
- *       redirectUrl: window.location.origin + '/dashboard',
+ *       redirectUrl: process.env.NEXT_PUBLIC_APP_URL + '/dashboard',
  *     });
  *   };
  *
