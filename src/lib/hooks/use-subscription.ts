@@ -21,20 +21,19 @@ interface SubscriptionResponse {
 async function fetchSubscription(): Promise<SubscriptionWithPlan | null> {
 	const response = await fetch('/api/billing/subscription');
 
+	// 401 = Not logged in (expected, not an error)
+	if (response.status === 401) {
+		return null;
+	}
+
+	// Other errors (500, etc.) - API always returns user-friendly error message
 	if (!response.ok) {
-		// Unauthorized is expected for non-logged users
-		if (response.status === 401) {
-			return null;
-		}
-		throw new Error('Failed to fetch subscription data');
+		const errorData: SubscriptionResponse = await response.json();
+		throw new Error(errorData.error);
 	}
 
+	// Success
 	const result: SubscriptionResponse = await response.json();
-
-	if (!result.success) {
-		throw new Error(result.error ?? 'API returned unsuccessful response');
-	}
-
 	return result.data;
 }
 

@@ -157,11 +157,85 @@ Custom error classes:
 
 Rules:
 
-- Services throw errors.  
+- Services throw errors.
 - Actions catch and map them to:
-  - field-specific errors  
-  - server errors  
+  - field-specific errors
+- server errors
 - Never leak sensitive details in production.
+
+## Error Messages Convention
+
+**CRITICAL**: All error messages returned to the client MUST be user-friendly.
+
+### Route Handlers (API Routes):
+```typescript
+// ✅ GOOD - User-friendly message
+return NextResponse.json(
+  { success: false, error: 'Unable to load your subscription. Please try again.' },
+  { status: 500 }
+);
+
+// ❌ BAD - Technical message
+return NextResponse.json(
+  { success: false, error: 'Database connection failed' },
+  { status: 500 }
+);
+```
+
+### React Query Hooks:
+
+**Pattern for API data fetching:**
+```typescript
+async function fetchData() {
+  const response = await fetch('/api/endpoint');
+
+  // Handle expected non-error cases (e.g., 401 for non-logged users)
+  if (response.status === 401) {
+    return null;
+  }
+
+  // Handle errors - API always provides user-friendly message
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error); // No fallback - trust API
+  }
+
+  // Success
+  const result = await response.json();
+  return result.data;
+}
+```
+
+**Rules:**
+- ✅ **Trust API error messages** - No `??` fallbacks needed
+- ✅ API **guarantees** user-friendly error messages
+- ✅ Hook propagates via `throw new Error(errorData.error)` (no fallback)
+- ❌ Don't add generic fallback messages in hooks
+
+### UI Components with React Query:
+
+**Always destructure error from useQuery:**
+```typescript
+const { data, isLoading, isError, error, refetch } = useQuery(...);
+```
+
+**Display error state:**
+```typescript
+if (isError && error) {
+  return (
+    <div>
+      <p>{error.message}</p> {/* Direct display - no fallback */}
+      <Button onClick={() => refetch()}>Try Again</Button>
+    </div>
+  );
+}
+```
+
+**Rules:**
+- ✅ Display `error.message` directly (no `??` fallback)
+- ✅ Always provide a "Try Again" button with `refetch()`
+- ✅ Check `isError && error` before rendering error state
+- ❌ Don't add fallback messages - API contract ensures messages exist
 
 ---
 

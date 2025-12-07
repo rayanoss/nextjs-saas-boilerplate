@@ -9,8 +9,9 @@ import { SubscriptionCard } from '@/components/billing';
 
 export function SubscriptionSection() {
 	const router = useRouter();
-	const { data: subscription, isLoading } = useSubscription();
+	const { data: subscription, isLoading, isError, error, refetch } = useSubscription();
 
+	// Loading state
 	if (isLoading) {
 		return (
 			<Card>
@@ -27,10 +28,32 @@ export function SubscriptionSection() {
 		);
 	}
 
+	// Error state
+	if (isError && error) {
+		return (
+			<Card>
+				<CardHeader>
+					<CardTitle>Subscription</CardTitle>
+					<CardDescription>Unable to load your subscription</CardDescription>
+				</CardHeader>
+				<CardContent>
+					<div className="space-y-4">
+						<p className="text-sm text-muted-foreground">{error.message}</p>
+						<Button variant="outline" onClick={() => refetch()}>
+							Try Again
+						</Button>
+					</div>
+				</CardContent>
+			</Card>
+		);
+	}
+
+	// Has active subscription
 	if (subscription) {
 		return <SubscriptionCard subscription={subscription} />;
 	}
 
+	// No subscription
 	return (
 		<Card>
 			<CardHeader>

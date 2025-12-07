@@ -39,7 +39,7 @@ export async function GET() {
 		return NextResponse.json(
 			{
 				success: false,
-				error: 'Failed to retrieve subscription data',
+				error: 'Unable to load your subscription. Please try again in a moment.',
 				...(process.env['NODE_ENV'] === 'development' && {
 					details: error instanceof Error ? error.message : 'Unknown error',
 				}),
