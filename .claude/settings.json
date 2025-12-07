@@ -12,7 +12,7 @@
   },
   "hooks": {
     "PreToolUse": [],
-   "PostToolUse": [
+    "PostToolUse": [
   {
     "matcher": "Edit|Write",
     "hooks": [
