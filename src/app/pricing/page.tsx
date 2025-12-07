@@ -1,4 +1,4 @@
-import { getAvailablePlans } from '@/lib/services/billing';
+import { getCachedAvailablePlans } from '@/lib/cache/plans';
 import { PricingCard } from '@/components/billing';
 
 /**
@@ -8,7 +8,7 @@ import { PricingCard } from '@/components/billing';
  * Users can click "Subscribe" to start the checkout flow.
  */
 export default async function PricingPage() {
-  const plans = await getAvailablePlans();
+  const plans = await getCachedAvailablePlans();
 
   return (
     <div className="min-h-screen p-8">

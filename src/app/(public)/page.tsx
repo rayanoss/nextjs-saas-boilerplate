@@ -1,11 +1,11 @@
 import Link from 'next/link';
-import { getAvailablePlans } from '@/lib/services/billing';
+import { getCachedAvailablePlans } from '@/lib/cache/plans';
 import { PricingCard } from '@/components/billing/pricing-card';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default async function HomePage() {
-  const plans = await getAvailablePlans();
+  const plans = await getCachedAvailablePlans();
 
   return (
     <>

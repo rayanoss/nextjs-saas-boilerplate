@@ -14,17 +14,7 @@ import { ValidationError, AuthenticationError, DatabaseError } from '@/lib/error
  * Reusable across actions, cron jobs, webhooks, etc.
  */
 
-/**
- * Sign up a new user
- *
- * @param input - Validated signup data
- * @returns Created user
- * @throws ValidationError if username/email already exists
- * @throws AuthenticationError if auth creation fails
- * @throws DatabaseError if database operation fails
- */
 export const signUpUser = async (input: SignUpInput): Promise<User> => {
-  // Check username availability in database
   const usernameAvailable = await isUsernameAvailable(input.username);
   if (!usernameAvailable) {
     throw new ValidationError('Username is already taken', 'username');
@@ -55,7 +45,6 @@ export const signUpUser = async (input: SignUpInput): Promise<User> => {
     throw new AuthenticationError('Failed to create user account');
   }
 
-  // Create user profile in database
   try {
     const user = await createUser({
       id: authData.user.id,
@@ -72,25 +61,17 @@ export const signUpUser = async (input: SignUpInput): Promise<User> => {
       const { error: deleteError } = await adminClient.auth.admin.deleteUser(authData.user.id);
 
       if (deleteError) {
-        // Log cleanup failure but don't throw - original error is more important
         console.error('[CLEANUP_ERROR] Failed to delete auth user after DB error:', deleteError);
       }
     } catch (cleanupError) {
-      // Catch any unexpected errors during cleanup
       console.error('[CLEANUP_ERROR] Unexpected error during auth user cleanup:', cleanupError);
     }
 
-    // Database error during user creation
     throw new DatabaseError('Failed to create user profile', error);
   }
 };
 
-/**
- * Sign in user
- *
- * @param input - Validated signin data
- * @throws AuthenticationError if credentials invalid
- */
+
 export const signInUser = async (input: SignInInput): Promise<void> => {
   const supabase = await createServerClient();
   const { error: authError } = await supabase.auth.signInWithPassword({
@@ -103,11 +84,7 @@ export const signInUser = async (input: SignInInput): Promise<void> => {
   }
 };
 
-/**
- * Sign out current user
- *
- * @throws AuthenticationError if signout fails
- */
+
 export const signOutUser = async (): Promise<void> => {
   const supabase = await createServerClient();
   const { error } = await supabase.auth.signOut();
