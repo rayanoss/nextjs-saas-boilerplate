@@ -2,7 +2,6 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { returnValidationErrors } from 'next-safe-action';
 import { actionClient, authActionClient } from './safe-action';
 import {
   signUpSchema,
@@ -19,7 +18,7 @@ import {
   resetPassword as resetPasswordService,
   updateUserPassword,
 } from '@/lib/services/auth';
-import { ValidationError } from '@/lib/errors';
+import { handleValidationError } from './helpers';
 
 /**
  * Authentication Actions with next-safe-action
@@ -36,25 +35,13 @@ import { ValidationError } from '@/lib/errors';
 export const signUpAction = actionClient.inputSchema(signUpSchema).action(async ({ parsedInput }) => {
   try {
     await signUpUser(parsedInput);
-
     revalidatePath('/', 'layout');
-
     return {
       success: true,
       message: 'Account created successfully! Please check your email to verify your account.',
     };
   } catch (error) {
-    // Convert ValidationError to next-safe-action validation errors
-    // This displays the error under the specific field in the form
-    if (error instanceof ValidationError && error.field) {
-      returnValidationErrors(signUpSchema, {
-        [error.field]: {
-          _errors: [error.message],
-        },
-      });
-    }
-
-    // Re-throw other errors (will be handled by handleServerError)
+    handleValidationError(error, signUpSchema);
     throw error;
   }
 });
@@ -89,7 +76,6 @@ export const signOutAction = authActionClient.action(async () => {
 export const requestPasswordResetAction = actionClient
   .inputSchema(resetPasswordRequestSchema)
   .action(async ({ parsedInput }) => {
-    // Call service for business logic
     await requestPasswordResetService(parsedInput.email);
 
     return {
@@ -107,9 +93,7 @@ export const requestPasswordResetAction = actionClient
 export const resetPasswordAction = actionClient
   .inputSchema(resetPasswordConfirmSchema)
   .action(async ({ parsedInput }) => {
-    // Call service for business logic
     await resetPasswordService(parsedInput);
-
     revalidatePath('/', 'layout');
     redirect('/dashboard');
   });
@@ -133,14 +117,7 @@ export const updatePasswordAction = authActionClient
       };
     } catch (error) {
       // Convert ValidationError to next-safe-action validation errors
-      if (error instanceof ValidationError && error.field) {
-        returnValidationErrors(updatePasswordSchema, {
-          [error.field]: {
-            _errors: [error.message],
-          },
-        });
-      }
-
+      handleValidationError(error, updatePasswordSchema);
       // Re-throw other errors (will be handled by handleServerError)
       throw error;
     }
