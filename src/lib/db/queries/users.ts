@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 import { db } from '../connection';
 import { users } from '../schema';
 import type { User, NewUser } from '@/lib/types/database';
@@ -77,6 +77,32 @@ export const isEmailAvailable = async (email: string): Promise<boolean> => {
 export const isUsernameAvailable = async (username: string): Promise<boolean> => {
   const user = await getUserByUsername(username);
   return user === null;
+};
+
+/**
+ * Check if both email and username are available
+ * Single query optimization for signup validation
+ *
+ * @param email - Email to check
+ * @param username - Username to check
+ * @returns Object with availability status for both fields
+ */
+export const checkUserAvailability = async (
+  email: string,
+  username: string
+): Promise<{ emailAvailable: boolean; usernameAvailable: boolean }> => {
+  const results = await db
+    .select({ email: users.email, username: users.username })
+    .from(users)
+    .where(or(eq(users.email, email), eq(users.username, username)));
+
+  const emailTaken = results.some(user => user.email === email);
+  const usernameTaken = results.some(user => user.username === username);
+
+  return {
+    emailAvailable: !emailTaken,
+    usernameAvailable: !usernameTaken,
+  };
 };
 
 /**

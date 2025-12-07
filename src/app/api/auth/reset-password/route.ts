@@ -11,12 +11,10 @@ export async function GET(request: NextRequest) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
-      // Succès - redirige vers la page reset password
       return NextResponse.redirect(new URL('/reset-password', request.url));
     }
   }
 
-  // Erreur - redirige vers login
   return NextResponse.redirect(
     new URL('/login?error=Invalid or expired reset link', request.url)
   );

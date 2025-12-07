@@ -3,8 +3,8 @@
 import { createServerClient, createAdminClient } from '@/lib/supabase/clients';
 import type { SignUpInput, SignInInput, ResetPasswordConfirmInput } from '@/lib/schemas/auth';
 import type { User } from '@/lib/types';
-import { createUser, getUserByEmail, isUsernameAvailable, isEmailAvailable } from '@/lib/db/queries/users';
-import { ValidationError, AuthenticationError, DatabaseError } from '@/lib/errors';
+import { createUser, getUserByEmail, checkUserAvailability } from '@/lib/db/queries/users';
+import { ValidationError, AuthenticationError, DatabaseError, ExternalAPIError } from '@/lib/errors';
 
 /**
  * Authentication service functions
@@ -15,13 +15,16 @@ import { ValidationError, AuthenticationError, DatabaseError } from '@/lib/error
  */
 
 export const signUpUser = async (input: SignUpInput): Promise<User> => {
-  const usernameAvailable = await isUsernameAvailable(input.username);
+  // Single DB query instead of two
+  const { emailAvailable, usernameAvailable } = await checkUserAvailability(
+    input.email,
+    input.username
+  );
+
   if (!usernameAvailable) {
     throw new ValidationError('Username is already taken', 'username');
   }
 
-  // Check email availability in database
-  const emailAvailable = await isEmailAvailable(input.email);
   if (!emailAvailable) {
     throw new ValidationError('Email is already registered', 'email');
   }
@@ -56,17 +59,15 @@ export const signUpUser = async (input: SignUpInput): Promise<User> => {
   } catch (error) {
     // ROLLBACK: Delete auth user if database creation fails
     // This prevents orphaned auth users without database records
-    try {
-      const adminClient = createAdminClient();
-      const { error: deleteError } = await adminClient.auth.admin.deleteUser(authData.user.id);
+    const adminClient = createAdminClient();
+    const { error: deleteError } = await adminClient.auth.admin.deleteUser(authData.user.id);
 
-      if (deleteError) {
-        console.error('[CLEANUP_ERROR] Failed to delete auth user after DB error:', deleteError);
-      }
-    } catch (cleanupError) {
-      console.error('[CLEANUP_ERROR] Unexpected error during auth user cleanup:', cleanupError);
+    if (deleteError) {
+      console.error('[ROLLBACK_FAILED] Original DB error:', error);
+      throw new ExternalAPIError('Failed to cleanup auth user after DB error', deleteError);
     }
 
+    // If cleanup succeeded, throw the original database error
     throw new DatabaseError('Failed to create user profile', error);
   }
 };
@@ -94,16 +95,9 @@ export const signOutUser = async (): Promise<void> => {
   }
 };
 
-/**
- * Request password reset
- *
- * @param email - User email
- * @throws Error if email send fails (error is intentionally ignored for security)
- */
+
 export const requestPasswordReset = async (email: string): Promise<void> => {
   const supabase = await createServerClient();
-
-  // Intentionally ignore errors to prevent email enumeration
   await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${process.env['NEXT_PUBLIC_APP_URL']}/api/auth/reset-password`,
   });

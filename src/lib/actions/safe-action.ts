@@ -45,7 +45,6 @@ export const actionClient = createSafeActionClient({
 
     // Production logging - minimal details (add Sentry/monitoring here)
     if (process.env['NODE_ENV'] === 'production') {
-      // TODO: Add Sentry/DataDog/CloudWatch logging
       console.error('[ACTION_ERROR]', {
         type: e.name,
         message: e.message,
