@@ -294,12 +294,40 @@ export function SignUpForm() {
 
 ### Overview
 
-The boilerplate implements a **hybrid caching strategy** that combines server-side and client-side caching for optimal performance and scalability.
+The boilerplate implements a **hybrid caching strategy** with a unified cache layer that automatically selects between Next.js `unstable_cache` (development/default) and Redis (production) for server-side caching, combined with TanStack Query for client-side caching.
+
+### Unified Cache Layer (`lib/cache/`)
+
+**Architecture:**
+- `types.ts` - Core interfaces (`CacheAdapter`, `CacheOptions`)
+- `adapters/nextjs.ts` - Next.js `unstable_cache` adapter
+- `adapters/redis.ts` - Redis adapter (supports ioredis/@vercel/kv)
+- `client.ts` - Auto-selection logic and unified API
+- `plans.ts` - Example: cached billing plans
+
+**Auto-switching:**
+```typescript
+// Automatically uses Redis if REDIS_URL or KV_URL is set
+// Falls back to Next.js cache otherwise
+import { cached } from '@/lib/cache/client';
+
+const data = await cached(
+  async () => fetchData(),
+  { key: 'my-key', ttl: 3600, tags: ['my-tag'] }
+);
+```
+
+**Benefits:**
+- **Framework-agnostic services** - Cache logic separated from business logic
+- **Production-ready** - Supports distributed caching with Redis for multi-instance deployments
+- **Unified API** - Same `cached()` function for both backends
+- **Tag invalidation** - Consistent `invalidateTag()` across adapters
 
 ### Architecture Principles
 
-**Server-side Cache (`unstable_cache`)** - For global data shared across all users
+**Server-side Cache** - For global data shared across all users
 - ✅ Use for: Plans, pricing, public content
+- ✅ Implementation: `getCachedAvailablePlans()` in `lib/cache/plans.ts`
 - ✅ Benefits: Reduces database queries, shared across all users
 - ❌ Avoid for: User-specific data (scalability issue - one cache entry per user)
 
@@ -312,18 +340,18 @@ The boilerplate implements a **hybrid caching strategy** that combines server-si
 
 **Pattern 1: Global Data (Plans)**
 ```typescript
-// Service with server-side cache
-export const getAvailablePlans = unstable_cache(
-  async (): Promise<Plan[]> => {
-    return await getActivePlans();
-  },
-  ['available-plans'],
-  { revalidate: 3600, tags: ['plans'] }
-);
+// Cache layer (lib/cache/plans.ts)
+export const getCachedAvailablePlans = async () => {
+  return cached(async () => await getActivePlans(), {
+    key: 'available-plans',
+    ttl: 3600,
+    tags: ['plans'],
+  });
+};
 
-// Server Component directly calls service
+// Server Component uses cached function
 export default async function PricingPage() {
-  const plans = await getAvailablePlans(); // Cached for 1 hour
+  const plans = await getCachedAvailablePlans(); // Cached for 1 hour
   return <PricingCards plans={plans} />;
 }
 ```
@@ -338,6 +366,19 @@ export async function GET() {
 }
 
 // TanStack Query hook (client cache)
+async function fetchSubscription() {
+  const response = await fetch('/api/billing/subscription');
+
+  if (response.status === 401) return null; // Not logged in
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error); // User-friendly message from API
+  }
+
+  const result = await response.json();
+  return result.data;
+}
+
 export function useSubscription() {
   return useQuery({
     queryKey: ['subscription'],
@@ -346,10 +387,20 @@ export function useSubscription() {
   });
 }
 
-// Client Component uses hook
+// Client Component uses hook with error handling
 export function SubscriptionSection() {
-  const { data, isLoading } = useSubscription();
-  // Cache stored in user's browser
+  const { data, isLoading, isError, error, refetch } = useSubscription();
+
+  if (isError && error) {
+    return (
+      <div>
+        <p>{error.message}</p> {/* User-friendly message from API */}
+        <button onClick={() => refetch()}>Try Again</button>
+      </div>
+    );
+  }
+
+  // ...render subscription
 }
 ```
 
@@ -371,9 +422,19 @@ export function useCreateCheckout() {
 ### Cache Invalidation
 
 **Server-side Cache:**
-- Time-based: `revalidate: 3600` (1 hour)
-- Tag-based: `revalidateTag('plans')` in Server Actions
+- Time-based: `ttl: 3600` (1 hour)
+- Tag-based: `invalidateTag('plans')` from `@/lib/cache/client`
+- Works with both Next.js and Redis adapters automatically
 - Use for: Global data that changes infrequently
+
+**Example:**
+```typescript
+import { invalidateTag } from '@/lib/cache/client';
+
+// After syncing plans from LemonSqueezy
+await syncPlansFromLemonSqueezy();
+await invalidateTag('plans'); // Invalidates on current adapter (Next.js or Redis)
+```
 
 **Client-side Cache:**
 - Automatic: After mutations via `queryClient.invalidateQueries()`
@@ -385,15 +446,23 @@ export function useCreateCheckout() {
 **Scalability:**
 - Server cache for global data: 1 cache entry shared across all users
 - Client cache for user data: 1M users = 1M browser caches, 0 server memory
+- Redis support: Distributed caching for multi-instance deployments
 
 **Performance:**
 - Server cache: Reduces database queries
 - Client cache: Reduces HTTP requests, instant navigation
+- Auto-switching: Development uses Next.js cache, production can use Redis
 
 **Best Practices:**
 - GET operations for user data: Route Handlers + TanStack Query
-- GET operations for global data: Server Components + `unstable_cache`
+- GET operations for global data: Cached functions in `lib/cache/`
 - Mutations: Server Actions with `next-safe-action`
+- Cache invalidation: Unified API works across adapters
+
+**Error Handling Convention:**
+- API routes return user-friendly error messages
+- React Query hooks trust API messages (no fallbacks)
+- UI components display `error.message` directly with retry button
 
 ### Available Hooks
 
@@ -792,23 +861,22 @@ test('signUpUser creates user', async () => {
 });
 ```
 
-## Action Helpers
+## UI Component Organization
 
 ### What was done
-Created a reusable helper function to eliminate repetitive ValidationError handling code in actions.
+Refactored authentication forms into reusable, single-responsibility components.
 
 ### Details
-- **New file**: `src/lib/actions/helpers.ts` containing `handleValidationError` function
-- **Purpose**: Converts service-layer `ValidationError` instances to next-safe-action field-specific validation errors
+- **New components**:
+  - `src/components/auth/SignInForm.tsx` - Sign in form with email/password validation
+  - `src/components/auth/SignUpForm.tsx` - Sign up form with email/password/username validation
+  - `src/components/auth/ForgotPasswordForm.tsx` - Password reset request form
+- **Simplified page**: `src/app/login/page.tsx` reduced from ~400 lines to ~70 lines
 - **Benefits**:
-  - Eliminates 7-line repetitive pattern across actions
-  - Single line usage: `handleValidationError(error, schema)`
-  - Maintains separation of concerns (services remain framework-agnostic)
-  - Scalable for future actions requiring ValidationError handling
-- **Updated files**: `src/lib/actions/auth.ts` now uses the helper in `signUpAction` and `updatePasswordAction`
-- **Type safety**: Accepts `unknown` error parameter with internal type checking
-- **Configuration**: Added `typecheck` script to `package.json` for TypeScript validation
-- **Hook configuration**: Updated `.claude/settings.json` to move typecheck from pre-edit to post-edit hooks
+  - Each form is independently testable and reusable
+  - Single responsibility: page handles mode switching, components handle forms
+  - Consistent error handling using `returnValidationErrors` from next-safe-action inline
+  - Removed dependency on `handleValidationError` helper (inline implementation in actions)
 
 ## License
 
